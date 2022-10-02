@@ -1,8 +1,11 @@
 import argparse
 from datetime import datetime
 from functools import reduce
+import sys
+from time import sleep
 import requests
 import logging
+from multiprocessing.dummy import Pool as ThreadPool
 from bs4 import BeautifulSoup
 logging.basicConfig(format='%(asctime)s - %(message)s',
                     level=logging.INFO, datefmt='[%H:%M:%S]')
@@ -12,7 +15,7 @@ class Markdown:
     text = ''
 
     def title(self, t):
-        self.text += '# %s\n' % t
+        self.text += '## %s\n' % t
 
     def doc(self, t):
         self.text += '%s' % '\n\n'.join(t)
@@ -41,12 +44,22 @@ def isUselessMessage(a: str):
     return a.startswith('(') or a.startswith("（")
 
 
-def getTranscript(url: str, lang="en"):
-    url = url.split('?')[0] + '/transcript.json?language=' + lang
-    j = requests.get(url).json()
-    if 'status' in j and j['status'] == 404:
+def getTranscript(url0: str, lang="en"):
+    url = url0.split('?')[0] + '/transcript.json?language=' + lang
+    try:
+        v = requests.get(url, timeout=3)
+        try:
+            j = v.json()
+            if 'status' in j and j['status'] == 404:
+                return []
+            return processJson(j)
+        except:
+            logging.error("Error getTranscript : " + str(v.status_code))
+            if v.status_code == 429: sleep(4)
+            return getTranscript(url0, lang)
+    except requests.exceptions.RequestException as e:
+        logging.error(e)
         return []
-    return processJson(j)
 
 
 def processJson(j):
@@ -78,26 +91,36 @@ def getTitleAndAuthor(link):
     return (title, author)
 
 
+def zipPowered(seq):
+    s = list(seq)
+    if reduce(lambda x, y : x and len(y) == s[0], s, True):
+        return zip(s)
+    else: 
+        return [map(lambda x : '\n'.join(x), s)]
+
 def processUnit(p, lang):
     logging.info('Downloading: %s : %s', p[1], p[0])
     trans = map(lambda x: "\n  " + "\n  ".join(x),
-                zip(*map(lambda a: getTranscript(p[2], a), lang)))
+                zipPowered(map(lambda a: getTranscript(p[2], a), lang)))
     return convertMarkDown((p[0], p[1], trans))
 
 
 def talk(url, lang):
     (title, author) = getTitleAndAuthor(url)
-    f = open(title, 'w+')
+    f = open(title + '.md', 'w+')
     f.write(processUnit((title, author, url), lang))
     f.close()
 
 
-def page(url, lang, page, max):
+def page(url, lang, page, max, number):
     pages = getPageContent('https://www.ted.com/talks?page=%s' %
                            (page or 1) if url is None else url)[:int(max)]
-    fileName = 'Talks_%s.md' % str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
+    logging.info("Talks Count: %i" % len(pages))
+    pool = ThreadPool(number)
+    fileName = 'Talks_%s.md' % str(
+        datetime.now().strftime("%Y-%m-%d_%H:%M:%S"))
     f = open(fileName, 'a+')
-    f.write('\n'.join(map(lambda s: processUnit(s, lang), pages)))
+    f.write('\n'.join(pool.map(lambda s: processUnit(s, lang), pages)))
     f.close()
     logging.info('Talks were saved to %s' % fileName)
 
@@ -117,7 +140,10 @@ def runCli():
     page_parser.add_argument(
         '-p', '--page', help='Page number of the talks list')
     page_parser.add_argument(
-        '-m', '--max', help="Maximum of talks"
+        '-m', '--max', help="Maximum of talks", default=sys.maxsize
+    )
+    page_parser.add_argument(
+        '-n', '--number', help="Threads count", default=2, type=int
     )
     args = vars(parser.parse_args())
     globals()[args.pop('sub_parser')](**args)
