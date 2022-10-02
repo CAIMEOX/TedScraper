@@ -25,10 +25,16 @@ Download a list of talks.
 ```bash
 usage: 
 python main.py page [-h] [-l LANG [LANG ...]] [-u URL] [-p PAGE] [-m MAX]
+                    [-n NUMBER]
   -h, --help            show this help message and exit
   -l LANG [LANG ...], --lang LANG [LANG ...]
                         Languages of transcripts
   -u URL, --url URL     Link to the talks page
   -p PAGE, --page PAGE  Page number of the talks list
   -m MAX, --max MAX     Maximum of talks
+  -n NUMBER, --number NUMBER
+                        Threads count
 ```
+
+## Why markdown?
+You can convert markdown into many other formats by pandoc.
